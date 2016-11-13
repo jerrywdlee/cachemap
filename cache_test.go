@@ -110,6 +110,64 @@ func TestCacheTimes(t *testing.T) {
 	}
 }
 
+func TestResetExpirationAndGetTTL(t *testing.T) {
+	var found bool
+
+	tc := New_tpl(Attr_tpl{
+		DefaultExpiration:      50 * time.Millisecond,
+		DefaultCleanupInterval: 1 * time.Millisecond,
+	})
+	tc.Set("a", 1, DefaultExpiration)
+	tc.Set("b", 2, NoExpiration)
+	tc.Set("c", 3, 20*time.Millisecond)
+
+	<-time.After(15 * time.Millisecond)
+	_, found = tc.Get("c")
+	//t.Error(tc.GetTTL("c"))
+	if !found {
+		t.Error("Did not find c even though it was not yet expired")
+	} else {
+		tc.ResetExpiration("c", 30*time.Millisecond)
+		//t.Error(tc.GetTTL("c"))
+	}
+
+	<-time.After(25 * time.Millisecond)
+	//t.Error(tc.GetTTL("c"))
+	_, found = tc.Get("c")
+	if !found {
+		t.Error("Did not find c even though it was not yet expired")
+	}
+
+	<-time.After(35 * time.Millisecond)
+	_, found = tc.Get("c")
+	if found {
+		t.Error("Found c when it should have been automatically deleted")
+	}
+
+	<-time.After(30 * time.Millisecond)
+	_, found = tc.Get("a")
+	if found {
+		t.Error("Found a when it should have been automatically deleted")
+	} else {
+		Ttl, _ := tc.GetTTL("a")
+		if Ttl != -2 {
+			t.Error("a have been automatically deleted but TTL not -2")
+		}
+	}
+
+	_, found = tc.Get("b")
+	if !found {
+		t.Error("Did not find b even though it was set to never expire")
+	} else {
+		Ttl, _ := tc.GetTTL("b")
+		if Ttl != -1 {
+			t.Error(Ttl)
+			t.Error("b never expire but TTL not -1")
+		}
+	}
+
+}
+
 func TestIncrement(t *testing.T) {
 	tc := New_tpl(Attr_tpl{
 		DefaultExpiration:      DefaultExpiration,

@@ -110,6 +110,48 @@ func (c *cache_tpl) Replace(k string, x ValueType_tpl, d time.Duration) error {
 	return nil
 }
 
+// Reset a value's life for the cache key only if it already exists, and the existing
+// item hasn't expired. Returns an error otherwise. Usage likes Redis' EXPIRE command
+func (c *cache_tpl) ResetExpiration(k string, d time.Duration) error {
+	var e int64
+	if d == DefaultExpiration {
+		d = c.defaultExpiration
+	}
+	if d > 0 {
+		e = time.Now().Add(d).UnixNano()
+	}
+	c.mu.Lock()
+	_, found := c.get(k)
+	if !found {
+		c.mu.Unlock()
+		return fmt.Errorf("Item %s doesn't exist", k) // Life Extension failed
+	}
+	c.items[k] = Item_tpl{
+		Expiration: e,
+	}
+	c.mu.Unlock()
+	return nil
+}
+
+// Get an item from the cache. Returns the item or nil, and a bool indicating
+// whether the key was found.Usage likes Redis' TTL command but returns nano seconds
+func (c *cache_tpl) GetTTL(k string) (int64, bool) {
+	c.mu.RLock()
+	// "Inlining" of get and Expired
+	item, found := c.items[k]
+	// TODO: inline time.Now implementation
+	if !found || item.Expiration > 0 && time.Now().UnixNano() > item.Expiration {
+		c.mu.RUnlock()
+		return -2, false // TTL command returns -2 if the key does not exist.
+	}
+	if item.Expiration == 0 {
+		return -1, false // TTL command returns -1 if the key exists but has no associated expire.
+	}
+
+	c.mu.RUnlock()
+	return item.Expiration, true
+}
+
 // Get an item from the cache. Returns the item or nil, and a bool indicating
 // whether the key was found.
 func (c *cache_tpl) Get(k string) (ValueType_tpl, bool) {
